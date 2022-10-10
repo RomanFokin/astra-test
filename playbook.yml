@@ -1,0 +1,118 @@
+---
+- hosts: all
+  become: yes
+
+  vars:
+    node_exporter_version: 1.4.0
+
+  tasks:
+  - name: Update apt packages
+    apt:
+      update_cache: yes
+  - name: Install docker packages
+    apt:
+      name: "{{ item }}"
+      state: present
+      update_cache: yes
+    loop:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - software-properties-common
+  - name: Add Docker s official GPG key
+    apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
+  - name: Verify that we have the key with the fingerprint
+    apt_key:
+      id: 0EBFCD88
+      state: present
+  - name: Set up the stable repository
+    apt_repository:
+      filename: docker_repo
+      repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+      state: present
+      update_cache: yes
+  - name: Update apt packages
+    apt:
+      update_cache: yes
+  - name: Install docker
+    apt:
+      name: docker-ce
+      state: present
+      update_cache: yes
+  - name: Install docker-ce-cli
+    apt:
+      name: docker-ce-cli
+      state: present
+      update_cache: yes
+  - name: Install containerd.io
+    apt:
+      name: containerd.io
+      state: present
+      update_cache: yes
+  - name: Install docker-compose
+    apt:
+      name: docker-compose
+      state: present
+      update_cache: yes
+
+  - name: Create group prometheus
+    group:
+      name: "prometheus"
+      state: present
+
+  - name: Create user prometheus
+    user:
+      name: "prometheus"
+      group: "prometheus"
+      state: present
+
+  - name: create directory for node_exporter
+    file:
+      path: /opt/prometheus
+      state: directory
+  - name: download node exporter
+    get_url:
+      url: https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz
+      dest: /opt/prometheus
+  - name: unpacking node_exporter
+    unarchive:
+      remote_src: yes
+      src: /opt/prometheus/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz
+      dest: /opt/prometheus
+  - name: create symlink node_exporter
+    file:
+      path: /usr/bin/node_exporter
+      state: link
+      src: /opt/prometheus/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter
+  - name: install unit file to systemd
+    template:
+      src: node_exporter.service
+      dest: /etc/systemd/system/node_exporter.service
+  - name: configure systemd to use service
+    systemd:
+      daemon_reload: yes
+      enabled: yes
+      state: started
+      name: node_exporter.service
+  - name: create directory for docker-compose
+    file:
+      path: /opt/prometheus-grafana
+      state: directory
+  - name: copy docker-compose file
+    template:
+      src: docker-compose/docker-compose.yml
+      dest: /opt/prometheus-grafana/docker-compose.yml
+  - name: copy prometheus dir
+    copy:
+      src: docker-compose/prometheus
+      dest: /opt/prometheus-grafana/
+  - name: copy grafana dir
+    copy:
+      src: docker-compose/grafana
+      dest: /opt/prometheus-grafana/
+  - name: Docker Compose up
+    community.docker.docker_compose:
+      project_src: /opt/prometheus-grafana
+      state: present
